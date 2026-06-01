@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>岗位评价与市场薪酬曲线课堂练习系统</title>
+<title>岗位评价与市场薪酬曲线课堂练习系统 V06</title>
 <style>
-  :root{
+  :root {
     --bg:#f5f7fb; --panel:#ffffff; --ink:#172033; --muted:#667085; --line:#d9e1ef;
     --brand:#2563eb; --brand2:#0f766e; --danger:#dc2626; --warn:#b45309; --ok:#15803d;
     --nav:#0f172a; --nav2:#18243a; --soft:#eff6ff; --soft2:#f0fdfa;
@@ -21,7 +21,7 @@
   .nav button{width:100%;border:0;background:transparent;color:#e5e7eb;text-align:left;padding:10px 10px;border-radius:10px;cursor:pointer;margin:2px 0;font-size:14px;line-height:1.35;}
   .nav button:hover{background:rgba(255,255,255,.08)}
   .nav button.active{background:#2563eb;color:#fff;font-weight:700;}
-  .nav button.locked{opacity:.55;}
+  .nav button.disabled{opacity:.45;}
   .sidefoot{margin-top:auto;padding:10px 14px;font-size:12px;color:#cbd5e1;border-top:1px solid rgba(255,255,255,.1);}
   main{width:85%;height:100vh;overflow:auto;padding:18px 22px;}
   .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;}
@@ -46,7 +46,7 @@
   button.danger{border:0;background:var(--danger);color:white;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:700;}
   button:disabled{opacity:.5;cursor:not-allowed;}
   input,select,textarea{width:100%;padding:9px 10px;border:1px solid #cfd8e6;border-radius:10px;background:#fff;font-size:14px;}
-  textarea{min-height:80px;resize:vertical;}
+  textarea{min-height:90px;resize:vertical;}
   label{display:block;font-weight:700;margin-bottom:6px;}
   .formrow{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px;}
   .formrow.three{grid-template-columns:repeat(3,1fr);}
@@ -56,9 +56,8 @@
   td.left,th.left{text-align:left;}
   .tablewrap{max-width:100%;overflow:auto;border-radius:12px;border:1px solid var(--line);}
   .tablewrap table{border:0;}
-  .tablewrap th:first-child,.tablewrap td:first-child{border-left:0;}
   .pill{display:inline-block;border-radius:999px;background:#eef2ff;color:#3730a3;padding:3px 8px;font-size:12px;}
-  .levelbar{display:flex;gap:6px;justify-content:center;}
+  .levelbar{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
   .levelbar label{font-weight:600;margin:0;display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line);border-radius:999px;padding:4px 7px;background:#fff;cursor:pointer;}
   .levelbar input{width:auto;margin:0;}
   .jobtabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
@@ -87,12 +86,12 @@
   <aside>
     <div class="brand">
       <h1>岗位评价 × 市场薪酬曲线</h1>
-      <p>Job Evaluation & Market Pay Curve Classroom</p>
+      <p>Job Evaluation & Market Pay Curve Classroom · V06</p>
     </div>
     <div class="nav" id="nav"></div>
     <div class="sidefoot">
       <div>主显示区：约 85%</div>
-      <div id="modeMini">Local / Cloud</div>
+      <div id="modeMini">Cloud</div>
     </div>
   </aside>
   <main>
@@ -104,9 +103,10 @@
   </main>
 </div>
 <script>
-/* =========================
-   内置数据：来自上传的两个 Excel 表
-   ========================= */
+/* V06: 学生登录 + 提交后自动显示动态排序市场薪酬表；无教师解锁、无应提交人数。 */
+const CLOUD_FUNCTION_API_BASE_URL = 'https://1311686407-4tajf92d3t.ap-guangzhou.tencentscf.com';
+const DEFAULT_CLASS_ID = 'HRM2026A';
+
 const JOBS = [
   {id:'J01', name:'Intern'},
   {id:'J02', name:'Cleaner'},
@@ -160,354 +160,180 @@ const PERCENTILES = [
 ];
 
 const VIEWS = [
-  {id:'setup', title:'0. 课堂设置 / Cloud Setup'},
+  {id:'login', title:'0. 登录 / Login'},
   {id:'standard', title:'1. 岗位评价标准'},
   {id:'rating', title:'2. 学生岗位评价'},
-  {id:'submit', title:'3. 提交与完成进度'},
-  {id:'summary', title:'4. 岗位薪点统计展示'},
-  {id:'market', title:'5. 原始市场薪酬表', locked:true},
-  {id:'analysis', title:'6. 薪点 × 市场薪酬表', locked:true},
-  {id:'curve', title:'7. 曲线与方程', locked:true},
-  {id:'predict', title:'8. 新岗位薪酬预测', locked:true},
-  {id:'report', title:'9. 报告与导出', locked:true}
+  {id:'summary', title:'3. 岗位薪点结果'},
+  {id:'market', title:'4. 动态市场薪酬表'},
+  {id:'curve', title:'5. 曲线与方程'},
+  {id:'predict', title:'6. 新岗位薪酬预测'},
+  {id:'report', title:'7. 报告与导出'}
 ];
-
-let appState = {
-  view:'setup', currentJob:'J01', selectedPercentiles:['p50'], summary:null, progress:null,
-  lastEquations:null, statusMessage:'', errorMessage:''
-};
-
+let appState = { view:'login', currentJob:'J01', selectedPercentiles:['p50'], summary:null, progress:null, statusMessage:'', errorMessage:'', lastEquations:null };
 function $(id){return document.getElementById(id)}
 function money(n){return Number(n||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}
 function fmt(n,d=2){return Number(n||0).toFixed(d)}
 function safe(s){return String(s||'').replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
-function saveSettings(){ localStorage.setItem('paycurve_settings', JSON.stringify(getSettings())); }
-function loadSettings(){
-  const def={apiBase:'', classId:'HRM2026A', studentId:'', studentName:'', groupName:'', requiredStudents:0, adminToken:''};
-  try{return {...def,...JSON.parse(localStorage.getItem('paycurve_settings')||'{}')}}catch(e){return def}
-}
-function getSettings(){
-  return {
-    apiBase: $('apiBase')?.value?.trim() ?? loadSettings().apiBase,
-    classId: $('classId')?.value?.trim() ?? loadSettings().classId,
-    studentId: $('studentId')?.value?.trim() ?? loadSettings().studentId,
-    studentName: $('studentName')?.value?.trim() ?? loadSettings().studentName,
-    groupName: $('groupName')?.value?.trim() ?? loadSettings().groupName,
-    requiredStudents: Number($('requiredStudents')?.value ?? loadSettings().requiredStudents ?? 0),
-    adminToken: $('adminToken')?.value?.trim() ?? loadSettings().adminToken
-  };
-}
-function storageKey(name){const s=loadSettings();return `paycurve_${name}_${s.classId||'HRM2026A'}`}
-function modeIsCloud(){return !!loadSettings().apiBase}
-function getPhase(){
-  if(appState.summary?.state?.phase) return appState.summary.state.phase;
-  if(appState.progress?.state?.phase) return appState.progress.state.phase;
-  try{return JSON.parse(localStorage.getItem(storageKey('state'))||'{}').phase || 'job_evaluation'}catch(e){return 'job_evaluation'}
-}
-function isMarketUnlocked(){return ['market_unlocked','curve_analysis','completed'].includes(getPhase())}
-function setLocalState(obj){localStorage.setItem(storageKey('state'), JSON.stringify({...getLocalState(),...obj}))}
-function getLocalState(){try{return JSON.parse(localStorage.getItem(storageKey('state'))||'{"phase":"job_evaluation"}')}catch(e){return {phase:'job_evaluation'}}}
-function myRatingsKey(){const s=loadSettings();return `paycurve_myRatings_${s.classId}_${s.studentId||'anonymous'}`}
+function loadSettings(){ const def={classId:DEFAULT_CLASS_ID, studentId:'', studentName:''}; try{return {...def,...JSON.parse(localStorage.getItem('paycurve_v06_login')||'{}')}}catch(e){return def} }
+function getSettings(){ return { classId: $('classId')?.value?.trim() || loadSettings().classId || DEFAULT_CLASS_ID, studentId: $('studentId')?.value?.trim() || loadSettings().studentId, studentName: $('studentName')?.value?.trim() || loadSettings().studentName } }
+function saveSettings(s){ localStorage.setItem('paycurve_v06_login', JSON.stringify(s)); }
+function validateStudentId(v){ return /^\d+$/.test(String(v||'').trim()); }
+function validateStudentName(v){ const s=String(v||'').trim(); return !!s && s.length<=40 && /^[A-Za-z㐀-鿿\s·.'’-]+$/.test(s); }
+function isLoggedIn(){ const s=loadSettings(); return !!(s.classId && validateStudentId(s.studentId) && validateStudentName(s.studentName)); }
+function storageKey(name){const s=loadSettings();return `paycurve_v06_${name}_${s.classId||DEFAULT_CLASS_ID}`}
+function myRatingsKey(){const s=loadSettings();return `paycurve_v06_myRatings_${s.classId}_${s.studentId||'anonymous'}`}
+function submittedKey(){const s=loadSettings();return `paycurve_v06_submitted_${s.classId}_${s.studentId||'anonymous'}`}
+function hasSubmitted(){ return localStorage.getItem(submittedKey())==='1'; }
+function markSubmitted(){ localStorage.setItem(submittedKey(),'1'); }
 function getMyRatings(){try{return JSON.parse(localStorage.getItem(myRatingsKey())||'{}')}catch(e){return {}}}
 function setMyRatings(r){localStorage.setItem(myRatingsKey(), JSON.stringify(r))}
-
+function modeIsCloud(){ return !!CLOUD_FUNCTION_API_BASE_URL; }
+function alertBlocks(){ return `${appState.errorMessage?`<div class="error">${safe(appState.errorMessage)}</div>`:''}${appState.statusMessage?`<div class="success">${safe(appState.statusMessage)}</div>`:''}`; }
 function navRender(){
-  const nav=$('nav');
-  nav.innerHTML = VIEWS.map(v=>`<button class="${appState.view===v.id?'active':''} ${v.locked&&!isMarketUnlocked()?'locked':''}" onclick="go('${v.id}')">${safe(v.title)}${v.locked&&!isMarketUnlocked()?' 🔒':''}</button>`).join('');
-  $('modeMini').innerHTML = modeIsCloud() ? '云端模式 Cloud' : '本地演示 Local';
+  const nav=$('nav'); const logged=isLoggedIn(); const submitted=hasSubmitted();
+  nav.innerHTML=VIEWS.map(v=>{
+    const needLogin=!logged && v.id!=='login'; const needSubmit=['summary','market','curve','predict','report'].includes(v.id)&&!submitted;
+    const disabled=needLogin||needSubmit;
+    return `<button class="${appState.view===v.id?'active':''} ${disabled?'disabled':''}" onclick="go('${v.id}')">${safe(v.title)}${disabled?' 🔒':''}</button>`;
+  }).join('');
+  $('modeMini').textContent=modeIsCloud()?'云函数 Cloud':'本地演示 Local';
 }
 function statusRender(){
-  const s=loadSettings(); const phase=getPhase();
-  const phaseZh={job_evaluation:'岗位评价中',point_summary:'薪点展示',market_unlocked:'市场薪酬已解锁',curve_analysis:'曲线分析',completed:'完成'}[phase]||phase;
-  $('statusbar').innerHTML = `
+  const s=loadSettings();
+  $('statusbar').innerHTML=`
     <span class="badge ${modeIsCloud()?'ok':'warn'}">${modeIsCloud()?'Cloud API':'Local Demo'}</span>
     <span class="badge">Class: ${safe(s.classId||'-')}</span>
     <span class="badge">Student: ${safe(s.studentId||'-')}</span>
-    <span class="badge ${isMarketUnlocked()?'ok':'warn'}">${safe(phaseZh)}</span>
+    <span class="badge ${hasSubmitted()?'ok':'warn'}">${hasSubmitted()?'已提交 Submitted':'未提交 Not submitted'}</span>
   `;
 }
 function go(id){
-  appState.view=id;
   appState.errorMessage=''; appState.statusMessage='';
-  render();
+  if(id!=='login' && !isLoggedIn()){ appState.view='login'; appState.errorMessage='请先输入姓名、学号和课堂码登录。'; return render(); }
+  if(['summary','market','curve','predict','report'].includes(id) && !hasSubmitted()){ appState.view='rating'; appState.errorMessage='请先完成并提交全部 11 个岗位评价；提交后系统会自动显示岗位薪点和市场薪酬结果。'; return render(); }
+  appState.view=id; render();
 }
 function render(){
-  navRender(); statusRender();
-  const v = VIEWS.find(x=>x.id===appState.view) || VIEWS[0];
-  $('viewTitle').textContent = v.title;
-  if(v.locked && !isMarketUnlocked()) return renderLocked();
-  ({setup:renderSetup, standard:renderStandard, rating:renderRating, submit:renderSubmit, summary:renderSummary, market:renderMarket, analysis:renderAnalysis, curve:renderCurve, predict:renderPredict, report:renderReport}[appState.view]||renderSetup)();
+  navRender(); statusRender(); const v=VIEWS.find(x=>x.id===appState.view)||VIEWS[0]; $('viewTitle').textContent=v.title;
+  ({login:renderLogin,standard:renderStandard,rating:renderRating,summary:renderSummary,market:renderMarket,curve:renderCurve,predict:renderPredict,report:renderReport}[appState.view]||renderLogin)();
 }
-function alertBlocks(){
-  return `${appState.errorMessage?`<div class="error">${safe(appState.errorMessage)}</div>`:''}${appState.statusMessage?`<div class="success">${safe(appState.statusMessage)}</div>`:''}`;
-}
-function renderLocked(){
-  $('app').innerHTML = `${alertBlocks()}<div class="lockedbox"><h3>该步骤尚未解锁</h3><p>根据课堂流程，必须先完成所有学生对所有岗位的岗位评价，并在“岗位薪点统计展示”环节展示结果后，才能查看市场薪酬表、薪点对应表、曲线和方程。</p><p class="small">教师可在“提交与完成进度”或“岗位薪点统计展示”中刷新进度，并在条件满足后解锁市场薪酬阶段。</p></div>`;
-}
-
-function renderSetup(){
+function renderLogin(){
   const s=loadSettings();
-  $('app').innerHTML = `${alertBlocks()}
+  $('app').innerHTML=`${alertBlocks()}
   <div class="grid two">
     <div class="card">
-      <h3>课堂与云函数设置</h3>
-      <div class="help">如果暂时不填写 API Base URL，程序会进入本地演示模式；学生数据只存在当前浏览器中。正式课堂请填写腾讯云函数 HTTP 触发器地址。</div>
-      <div class="formrow"><div><label>Cloud Function API Base URL</label><input id="apiBase" value="${safe(s.apiBase)}" placeholder="例如：https://service-xxx.gz.apigw.tencentcs.com/release/payCurveApi" /></div><div><label>Class ID / 课堂码</label><input id="classId" value="${safe(s.classId)}" /></div></div>
-      <div class="formrow three"><div><label>Student ID / 学号</label><input id="studentId" value="${safe(s.studentId)}" placeholder="S001" /></div><div><label>Student Name / 姓名</label><input id="studentName" value="${safe(s.studentName)}" placeholder="张三" /></div><div><label>Group Name / 小组</label><input id="groupName" value="${safe(s.groupName)}" placeholder="Group 1" /></div></div>
-      <div class="formrow"><div><label>Required Students / 应提交人数</label><input id="requiredStudents" type="number" min="0" value="${Number(s.requiredStudents||0)}" /></div><div><label>Admin Token / 教师口令</label><input id="adminToken" type="password" value="${safe(s.adminToken)}" placeholder="教师端解锁、重置使用" /></div></div>
-      <div class="btns"><button class="primary" onclick="saveSetup()">保存设置</button><button class="secondary" onclick="testCloud()">测试云函数连接</button><button class="secondary" onclick="go('standard')">进入练习</button></div>
+      <h3>学生登录</h3>
+      <div class="help">学生只需输入姓名、学号和课堂码。系统不会在前端显示云函数 URL、教师口令或应提交人数。</div>
+      <div class="formrow"><div><label>Student ID / 学号</label><input id="studentId" value="${safe(s.studentId)}" placeholder="例如 2026001" /></div><div><label>Student Name / 姓名</label><input id="studentName" value="${safe(s.studentName)}" placeholder="张三 / Zhang San" /></div></div>
+      <div class="formrow"><div><label>Class Code / 课堂码</label><input id="classId" value="${safe(s.classId||DEFAULT_CLASS_ID)}" /></div><div><label>&nbsp;</label><button class="primary" onclick="saveLogin()">登录并进入练习</button></div></div>
+      <div class="notice">默认课堂码：<b>${DEFAULT_CLASS_ID}</b>。学号要求纯数字；姓名支持中文或英文。</div>
     </div>
-    <div class="card">
-      <h3>课堂流程控制</h3>
+    <div class="card"><h3>课堂流程</h3>
       <ol style="line-height:1.9;margin-top:0">
-        <li>学生先完成 11 个岗位评价。</li>
-        <li>系统统计每个岗位的平均薪点、最高分、最低分、标准差。</li>
-        <li>所有学生完成后，教师解锁市场薪酬。</li>
-        <li>学生查看原始市场薪酬表和“薪点 × 市场薪酬”分析表。</li>
-        <li>学生勾选 P25/P50/P75 生成曲线、方程和 R²。</li>
-        <li>学生用方程预测新岗位薪酬并导出报告。</li>
+        <li>登录后查看岗位评价标准。</li>
+        <li>完成 11 个岗位的 A-E 档评价。</li>
+        <li>提交后，系统按所有已提交学生的数据计算岗位平均薪点。</li>
+        <li>市场薪酬表会按平均薪点从低到高动态重排岗位。</li>
+        <li>选择 P25/P50/P75 生成薪酬曲线、方程和 R²。</li>
       </ol>
-      <div class="notice">建议正式课堂使用云端模式：HTML 可挂在 GitHub Pages 或腾讯云 COS 静态网站；数据通过腾讯云函数写入 COS。</div>
+      <div class="small">提示：结果基于已提交学生数据。随着更多学生提交，岗位排序和曲线可能变化。</div>
     </div>
   </div>`;
 }
-function saveSetup(){saveSettings(); appState.statusMessage='设置已保存。'; render();}
-async function testCloud(){
-  saveSettings();
-  try{ const r=await apiCall('health',{}); appState.statusMessage='云函数连接成功：'+(r.message||'OK'); }
-  catch(e){ appState.errorMessage='云函数连接失败：'+e.message; }
-  render();
+function saveLogin(){
+  const s=getSettings();
+  if(!validateStudentId(s.studentId)){appState.errorMessage='学号必须为纯数字。'; return renderLogin();}
+  if(!validateStudentName(s.studentName)){appState.errorMessage='姓名应为中文或英文，可包含空格、中点、点号、连字符或撇号。'; return renderLogin();}
+  saveSettings(s); appState.statusMessage='登录成功。请开始岗位评价。'; appState.view='standard'; render();
 }
-
 function renderStandard(){
-  const rows = FACTORS.map(f=>`<tr><td class="left"><b>${safe(f.name)}</b><br><span class="small">${safe(f.zh)}</span></td><td>${fmt(f.weight,2)}</td>${['A','B','C','D','E'].map(l=>`<td>${f.levels[l]}</td>`).join('')}</tr>`).join('');
-  $('app').innerHTML = `${alertBlocks()}<div class="card"><h3>岗位评价因素、权重与档次分数</h3><div class="notice">计算规则：某因素得分 = 权重 × 所选档次分数；岗位总薪点 = 所有因素得分之和。A-E 档分数从 200 到 2000，权重合计为 1。</div><div class="tablewrap"><table><thead><tr><th class="left">Factor / 评价因素</th><th>Weight</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead><tbody>${rows}<tr><th class="left">Total</th><th>1.00</th><th colspan="5"></th></tr></tbody></table></div></div>`;
+  const rows=FACTORS.map(f=>`<tr><td class="left"><b>${safe(f.name)}</b><br><span class="small">${safe(f.zh)}</span></td><td>${fmt(f.weight*100,0)}%</td>${['A','B','C','D','E'].map(l=>`<td>${f.levels[l]}</td>`).join('')}</tr>`).join('');
+  $('app').innerHTML=`${alertBlocks()}<div class="card"><h3>岗位评价因素、权重与档次分数</h3><div class="help">每个岗位的薪点 = ∑（评价因素权重 × 所选档次分数）。权重合计为 100%。</div><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th class="left">Evaluation Factor</th><th>Weight</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr></thead><tbody>${rows}</tbody></table></div><div class="btns"><button class="primary" onclick="go('rating')">开始岗位评价</button></div></div>`;
 }
-function jobDone(jobId){ const r=getMyRatings()[jobId]||{}; return FACTORS.every(f=>r[f.id]); }
-function jobPoints(jobId){
-  const r=getMyRatings()[jobId]||{};
-  return FACTORS.reduce((sum,f)=> sum + (r[f.id] ? f.weight*f.levels[r[f.id]] : 0), 0);
-}
-function completionCount(){return JOBS.filter(j=>jobDone(j.id)).length}
+function jobPoints(jobId){ const r=getMyRatings()[jobId]||{}; return FACTORS.reduce((sum,f)=>sum+f.weight*(f.levels[r[f.id]]||0),0); }
+function completedJobCount(){ const r=getMyRatings(); return JOBS.filter(j=>FACTORS.every(f=>r[j.id]&&r[j.id][f.id])).length; }
 function renderRating(){
   const ratings=getMyRatings(); const job=JOBS.find(j=>j.id===appState.currentJob)||JOBS[0];
-  const tabs=JOBS.map(j=>`<button onclick="appState.currentJob='${j.id}';render()" class="${appState.currentJob===j.id?'active':''} ${jobDone(j.id)?'done':''}">${safe(j.name)} ${jobDone(j.id)?'✓':''}</button>`).join('');
-  const current=ratings[job.id]||{};
-  const rows=FACTORS.map(f=>{
-    const sel=current[f.id]; const levelScore=sel?f.levels[sel]:0; const weighted=f.weight*levelScore;
-    return `<tr><td class="left"><b>${safe(f.name)}</b><br><span class="small">${safe(f.zh)} · Weight ${f.weight}</span></td><td><div class="levelbar">${['A','B','C','D','E'].map(l=>`<label><input type="radio" name="${f.id}" ${sel===l?'checked':''} onchange="setLevel('${job.id}','${f.id}','${l}')">${l}</label>`).join('')}</div></td><td>${sel||'-'}</td><td>${levelScore||'-'}</td><td>${weighted?fmt(weighted,1):'-'}</td></tr>`;
-  }).join('');
-  const pct = Math.round(completionCount()/JOBS.length*100);
-  $('app').innerHTML = `${alertBlocks()}
-    <div class="card"><h3>选择岗位并完成评价</h3><div class="progress"><span style="width:${pct}%"></span></div><p class="small">已完成 ${completionCount()} / ${JOBS.length} 个岗位。完成所有岗位后，可在下一步提交。</p><div class="jobtabs">${tabs}</div></div>
-    <div class="card"><h3>${safe(job.name)} 岗位评价</h3><div class="tablewrap"><table><thead><tr><th class="left">Factor</th><th>选择档次</th><th>Selected</th><th>Level Score</th><th>Weighted Points</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th class="left" colspan="4">Total Job Points</th><th>${fmt(jobPoints(job.id),1)}</th></tr></tfoot></table></div><div class="btns"><button class="secondary" onclick="prevJob()">上一个岗位</button><button class="primary" onclick="nextJob()">下一个岗位</button><button class="secondary" onclick="go('submit')">提交与进度</button></div></div>`;
+  const done=completedJobCount(); const tabs=JOBS.map(j=>{ const ok=FACTORS.every(f=>ratings[j.id]&&ratings[j.id][f.id]); return `<button class="${j.id===job.id?'active':''} ${ok?'done':''}" onclick="appState.currentJob='${j.id}';renderRating()">${safe(j.name)}${ok?' ✓':''}</button>` }).join('');
+  const rows=FACTORS.map(f=>{ const cur=(ratings[job.id]||{})[f.id]||''; const lv=['A','B','C','D','E'].map(l=>`<label><input type="radio" name="${job.id}_${f.id}" value="${l}" ${cur===l?'checked':''} onchange="setLevel('${job.id}','${f.id}','${l}')">${l}</label>`).join(''); const score=cur?f.weight*f.levels[cur]:0; return `<tr><td class="left"><b>${safe(f.name)}</b><br><span class="small">${safe(f.zh)}</span></td><td>${fmt(f.weight*100,0)}%</td><td><div class="levelbar">${lv}</div></td><td>${cur?f.levels[cur]:'-'}</td><td>${cur?fmt(score,1):'-'}</td></tr>` }).join('');
+  const pct=done/JOBS.length*100;
+  $('app').innerHTML=`${alertBlocks()}<div class="card"><h3>学生岗位评价</h3><div class="notice">提交前请完成全部 11 个岗位。提交后，系统会自动汇总当前已提交学生的数据，并显示动态排序市场薪酬表。</div><div class="progress"><span style="width:${pct}%"></span></div><div class="small" style="margin-top:6px">已完成 ${done} / ${JOBS.length} 个岗位</div><div class="jobtabs">${tabs}</div><h4>${safe(job.name)} · 当前薪点：${fmt(jobPoints(job.id),1)}</h4><div class="tablewrap"><table><thead><tr><th class="left">Factor</th><th>Weight</th><th>Level</th><th>Level Score</th><th>Weighted Points</th></tr></thead><tbody>${rows}</tbody></table></div><div class="btns"><button class="secondary" onclick="prevJob()">上一个岗位</button><button class="secondary" onclick="nextJob()">下一个岗位</button><button class="primary" onclick="submitRatings()" ${done<JOBS.length?'disabled':''}>提交全部岗位评价</button></div></div>`;
 }
-function setLevel(jobId,factorId,level){const r=getMyRatings(); r[jobId]=r[jobId]||{}; r[jobId][factorId]=level; setMyRatings(r); render();}
-function prevJob(){const i=JOBS.findIndex(j=>j.id===appState.currentJob); appState.currentJob=JOBS[(i-1+JOBS.length)%JOBS.length].id; render();}
-function nextJob(){const i=JOBS.findIndex(j=>j.id===appState.currentJob); appState.currentJob=JOBS[(i+1)%JOBS.length].id; render();}
-function buildSubmission(){
-  const s=loadSettings(); const r=getMyRatings();
-  return {classId:s.classId, studentId:s.studentId, studentName:s.studentName, groupName:s.groupName, submittedAt:new Date().toISOString(), ratings:JOBS.map(j=>({jobId:j.id, jobName:j.name, factorScores:r[j.id]||{}, totalPoints:Math.round(jobPoints(j.id)*10)/10}))};
-}
-function renderSubmit(){
-  const s=loadSettings(); const ok=completionCount()===JOBS.length && s.studentId && s.studentName;
-  const rows=JOBS.map(j=>`<tr><td class="left">${safe(j.name)}</td><td>${jobDone(j.id)?'<span class="pill">Completed</span>':'<span class="badge danger">Missing</span>'}</td><td>${fmt(jobPoints(j.id),1)}</td></tr>`).join('');
-  $('app').innerHTML = `${alertBlocks()}
-  <div class="grid two">
-    <div class="card"><h3>提交前检查</h3><div class="tablewrap"><table><thead><tr><th class="left">Job</th><th>Status</th><th>Total Points</th></tr></thead><tbody>${rows}</tbody></table></div><div class="btns"><button class="primary" ${ok?'':'disabled'} onclick="submitRatings()">提交岗位评价结果</button><button class="secondary" onclick="refreshProgress()">刷新全班进度</button></div><p class="small">提交条件：已填写学号、姓名，并完成所有 11 个岗位评价。</p></div>
-    <div class="card"><h3>全班进度</h3><div id="progressBox">${renderProgressBox()}</div><div class="btns"><button class="secondary" onclick="refreshProgress()">刷新进度</button><button class="primary" onclick="teacherSetConfig()">教师保存应提交人数</button><button class="primary" onclick="teacherUnlock()">解锁市场薪酬</button><button class="danger" onclick="teacherReset()">重置本课堂数据</button></div></div>
-  </div>`;
-}
-function renderProgressBox(){
-  const p=appState.progress; if(!p) return '<p class="muted">尚未刷新进度。</p>';
-  const list=(p.submissions||[]).map(x=>`<tr><td>${safe(x.studentId)}</td><td>${safe(x.studentName)}</td><td>${safe(x.groupName||'')}</td><td>${x.completedJobs||0}/11</td><td>${safe((x.submittedAt||'').replace('T',' ').slice(0,19))}</td></tr>`).join('');
-  return `<div class="kpi"><div class="item"><div class="num">${p.submissionsCount||0}</div><div class="small">已提交人数</div></div><div class="item"><div class="num">${p.requiredStudents||0}</div><div class="small">应提交人数</div></div><div class="item"><div class="num">${p.allCompleted?'Yes':'No'}</div><div class="small">是否全部完成</div></div><div class="item"><div class="num">${safe(p.state?.phase||getPhase())}</div><div class="small">课堂阶段</div></div></div><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>ID</th><th>Name</th><th>Group</th><th>Jobs</th><th>Time</th></tr></thead><tbody>${list||'<tr><td colspan="5">暂无提交</td></tr>'}</tbody></table></div>`;
-}
+function setLevel(jobId,factorId,level){ const r=getMyRatings(); r[jobId]=r[jobId]||{}; r[jobId][factorId]=level; setMyRatings(r); renderRating(); }
+function prevJob(){ const i=JOBS.findIndex(j=>j.id===appState.currentJob); appState.currentJob=JOBS[Math.max(0,i-1)].id; renderRating(); }
+function nextJob(){ const i=JOBS.findIndex(j=>j.id===appState.currentJob); appState.currentJob=JOBS[Math.min(JOBS.length-1,i+1)].id; renderRating(); }
+function makeSubmission(){ const s=loadSettings(), r=getMyRatings(); return {classId:s.classId, studentId:s.studentId, studentName:s.studentName, submittedAt:new Date().toISOString(), ratings:JOBS.map(j=>({jobId:j.id, jobName:j.name, factorScores:r[j.id]||{}, totalPoints:Math.round(jobPoints(j.id)*10)/10}))}; }
 async function submitRatings(){
-  saveSettings(); const s=loadSettings();
-  if(!s.studentId || !s.studentName){appState.errorMessage='请先填写 Student ID 和 Student Name。'; return render();}
-  if(completionCount()!==JOBS.length){appState.errorMessage='还有岗位未完成评价，不能提交。'; return render();}
-  try{ await apiCall('submitRating', {submission:buildSubmission()}); appState.statusMessage='提交成功。'; await refreshProgress(false); }
-  catch(e){appState.errorMessage='提交失败：'+e.message;}
-  render();
-}
-async function refreshProgress(doRender=true){
-  try{ appState.progress=await apiCall('getProgress',{}); appState.statusMessage='进度已刷新。'; }
-  catch(e){appState.errorMessage='刷新失败：'+e.message;}
-  if(doRender) render();
-}
-async function teacherSetConfig(){
-  saveSettings();
-  try{ await apiCall('setConfig',{requiredStudents:loadSettings().requiredStudents, adminToken:loadSettings().adminToken}); appState.statusMessage='课堂配置已保存。'; await refreshProgress(false); }
-  catch(e){appState.errorMessage='保存失败：'+e.message;}
-  render();
-}
-async function teacherUnlock(){
-  saveSettings();
-  try{ const r=await apiCall('unlockMarket',{adminToken:loadSettings().adminToken}); appState.statusMessage=r.message||'市场薪酬已解锁。'; await getSummary(false); }
-  catch(e){appState.errorMessage='解锁失败：'+e.message;}
-  render();
-}
-async function teacherReset(){
-  if(!confirm('确定重置本课堂所有提交数据？此操作不可撤销。')) return;
-  saveSettings();
-  try{ await apiCall('resetClass',{adminToken:loadSettings().adminToken}); localStorage.removeItem(storageKey('submissions')); setLocalState({phase:'job_evaluation'}); appState.progress=null; appState.summary=null; appState.statusMessage='本课堂数据已重置。'; }
-  catch(e){appState.errorMessage='重置失败：'+e.message;}
-  render();
-}
-
-async function getSummary(doRender=true){
-  try{ appState.summary=await apiCall('getSummary',{}); }
-  catch(e){ appState.errorMessage='获取汇总失败：'+e.message; }
-  if(doRender) render();
-}
-function renderSummary(){
-  const box = appState.summary ? summaryHtml(appState.summary) : '<p class="muted">尚未获取岗位薪点汇总。</p>';
-  $('app').innerHTML = `${alertBlocks()}<div class="card"><h3>岗位薪点统计展示</h3><div class="notice">该环节只展示岗位评价结果，不显示市场薪酬。教师确认所有学生完成并展示结果后，才能解锁市场薪酬表。</div><div class="btns"><button class="primary" onclick="getSummary()">计算/刷新岗位薪点汇总</button><button class="primary" onclick="teacherUnlock()">确认展示完成，解锁市场薪酬</button></div><div style="margin-top:12px">${box}</div></div>`;
-}
-function summaryHtml(sum){
-  const rows=(sum.jobPointSummary||[]).slice().sort((a,b)=>a.averagePoints-b.averagePoints).map((x,i)=>`<tr><td>${i+1}</td><td class="left">${safe(x.jobName)}</td><td>${x.ratingCount}</td><td>${fmt(x.averagePoints,1)}</td><td>${fmt(x.minPoints,1)}</td><td>${fmt(x.maxPoints,1)}</td><td>${fmt(x.standardDeviation,1)}</td></tr>`).join('');
-  return `<div class="kpi"><div class="item"><div class="num">${sum.submissionsCount||0}</div><div class="small">已提交人数</div></div><div class="item"><div class="num">${sum.requiredStudents||0}</div><div class="small">应提交人数</div></div><div class="item"><div class="num">${sum.allCompleted?'Yes':'No'}</div><div class="small">全部完成</div></div><div class="item"><div class="num">${safe(sum.state?.phase||getPhase())}</div><div class="small">阶段</div></div></div><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Rank</th><th class="left">Job</th><th>Rating Count</th><th>Average Points</th><th>Min</th><th>Max</th><th>Std. Dev.</th></tr></thead><tbody>${rows||'<tr><td colspan="7">暂无数据</td></tr>'}</tbody></table></div>`;
-}
-
-function getJobPointMap(){
-  const sum=appState.summary || computeLocalSummary();
-  const m={}; (sum.jobPointSummary||[]).forEach(x=>m[x.jobId]=x.averagePoints);
-  return m;
-}
-function marketRow(percentile){ return MARKET_ROWS.find(r=>Math.abs(r.percentile-percentile)<0.001); }
-function buildAnalysisTable(){
-  const points=getJobPointMap();
-  const p25=marketRow(.25), p50=marketRow(.5), p75=marketRow(.75);
-  return JOBS.map(j=>({jobId:j.id, jobName:j.name, points:Number(points[j.id]||0), p25:p25.values[j.id], p50:p50.values[j.id], p75:p75.values[j.id]})).filter(x=>x.points>0).sort((a,b)=>a.points-b.points);
-}
-function renderMarket(){
-  const points=getJobPointMap();
-  const header=`<tr><th class="left">Job</th>${JOBS.map(j=>`<th>${safe(j.name)}</th>`).join('')}<th>Percentile 百分位数</th></tr>`;
-  const pointRow=`<tr><th class="left">Job points<br><span class="small">全班平均薪点</span></th>${JOBS.map(j=>`<td>${points[j.id]?fmt(points[j.id],1):'-'}</td>`).join('')}<td>-</td></tr>`;
-  const body=MARKET_ROWS.map(r=>`<tr><td>${r.rank}</td>${JOBS.map(j=>`<td>${money(r.values[j.id])}</td>`).join('')}<td>${fmt(r.percentile,2)}</td></tr>`).join('');
-  $('app').innerHTML = `${alertBlocks()}<div class="card"><h3>原始市场薪酬表</h3><div class="notice">该表保留原始岗位顺序和所有市场百分位数据。第二行 Job points 由全班岗位评价平均薪点自动填入，但不改变原表结构。</div><div class="btns"><button class="secondary" onclick="getSummary()">刷新薪点</button><button class="primary" onclick="go('analysis')">进入薪点 × 市场薪酬分析表</button></div><div class="tablewrap" style="margin-top:12px"><table>${header}${pointRow}${body}</table></div></div>`;
-}
-function renderAnalysis(){
-  const rows=buildAnalysisTable().map((x,i)=>`<tr><td>${i+1}</td><td class="left">${safe(x.jobName)}</td><td>${fmt(x.points,1)}</td><td>${money(x.p25)}</td><td>${money(x.p50)}</td><td>${money(x.p75)}</td></tr>`).join('');
-  $('app').innerHTML = `${alertBlocks()}<div class="card"><h3>按岗位薪点从低到高排序的分析表</h3><div class="notice">该表用于画图和生成方程。横轴为 Average Job Points，纵轴为市场薪酬百分位。</div><div class="tablewrap"><table><thead><tr><th>Rank</th><th class="left">Job</th><th>Average Job Points</th><th>P25 Salary</th><th>P50 Salary</th><th>P75 Salary</th></tr></thead><tbody>${rows||'<tr><td colspan="6">暂无薪点数据，请先刷新汇总。</td></tr>'}</tbody></table></div><div class="btns"><button class="primary" onclick="go('curve')">生成曲线与方程</button></div></div>`;
-}
-function renderCurve(){
-  const checks=PERCENTILES.map(p=>`<label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><input style="width:auto" type="checkbox" ${appState.selectedPercentiles.includes(p.key)?'checked':''} onchange="togglePercentile('${p.key}')"> ${p.label}</label>`).join('');
-  const data=buildAnalysisTable();
-  const curve = data.length>=3 ? drawCurve(data, appState.selectedPercentiles) : '<div class="error">有效岗位点数少于 3 个，暂不能生成线性回归方程。</div>';
-  $('app').innerHTML = `${alertBlocks()}<div class="card"><h3>选择百分位并生成市场薪酬曲线</h3><div class="notice">可勾选一条或多条百分位数据。系统会显示散点、线性回归直线、方程和 R²。</div><div>${checks}</div><div class="btns"><button class="secondary" onclick="getSummary()">刷新薪点</button><button class="primary" onclick="go('predict')">进入薪酬预测</button></div><div style="margin-top:12px">${curve}</div></div>`;
-}
-function togglePercentile(k){
-  const a=appState.selectedPercentiles;
-  if(a.includes(k)) appState.selectedPercentiles=a.filter(x=>x!==k); else a.push(k);
-  if(appState.selectedPercentiles.length===0) appState.selectedPercentiles=['p50'];
-  render();
-}
-function regression(xs,ys){
-  const n=xs.length, mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n;
-  let sxx=0,sxy=0,syy=0; for(let i=0;i<n;i++){sxx+=(xs[i]-mx)**2;sxy+=(xs[i]-mx)*(ys[i]-my);syy+=(ys[i]-my)**2;}
-  const slope=sxx===0?0:sxy/sxx, intercept=my-slope*mx;
-  const ssRes=ys.reduce((acc,y,i)=>acc+(y-(slope*xs[i]+intercept))**2,0);
-  const r2=syy===0?1:1-ssRes/syy;
-  return {slope,intercept,r2};
-}
-function equationText(eq){return `y = ${fmt(eq.slope,4)}x ${eq.intercept>=0?'+':'-'} ${fmt(Math.abs(eq.intercept),2)}`}
-function drawCurve(data, selected){
-  const ps=PERCENTILES.filter(p=>selected.includes(p.key));
-  const xs=data.map(d=>d.points);
-  const yVals=[]; ps.forEach(p=>data.forEach(d=>yVals.push(d[p.key])));
-  const xMin=Math.min(...xs), xMax=Math.max(...xs), yMin=Math.min(...yVals), yMax=Math.max(...yVals);
-  const W=1080,H=560,M={l:70,r:30,t:30,b:70};
-  const sx=x=>M.l+(x-xMin)/(xMax-xMin||1)*(W-M.l-M.r);
-  const sy=y=>H-M.b-(y-yMin)/(yMax-yMin||1)*(H-M.t-M.b);
-  let svg=`<div class="legend">${ps.map(p=>`<span><i class="dot" style="background:${p.color}"></i>${p.label}</span>`).join('')}</div><div class="svgbox"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
-  svg+=`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`;
-  for(let i=0;i<=5;i++){const y=yMin+(yMax-yMin)*i/5; const yy=sy(y); svg+=`<line x1="${M.l}" y1="${yy}" x2="${W-M.r}" y2="${yy}" stroke="#e5e7eb"/><text x="${M.l-10}" y="${yy+4}" text-anchor="end" font-size="12" fill="#64748b">${money(y)}</text>`}
-  for(let i=0;i<=5;i++){const x=xMin+(xMax-xMin)*i/5; const xx=sx(x); svg+=`<line x1="${xx}" y1="${M.t}" x2="${xx}" y2="${H-M.b}" stroke="#f1f5f9"/><text x="${xx}" y="${H-M.b+22}" text-anchor="middle" font-size="12" fill="#64748b">${fmt(x,0)}</text>`}
-  svg+=`<line x1="${M.l}" y1="${H-M.b}" x2="${W-M.r}" y2="${H-M.b}" stroke="#334155"/><line x1="${M.l}" y1="${M.t}" x2="${M.l}" y2="${H-M.b}" stroke="#334155"/>`;
-  svg+=`<text x="${W/2}" y="${H-20}" text-anchor="middle" font-size="14" fill="#334155">Average Job Points / 平均岗位薪点</text>`;
-  svg+=`<text transform="translate(18 ${H/2}) rotate(-90)" text-anchor="middle" font-size="14" fill="#334155">Market Salary / 市场薪酬</text>`;
-  const equations={};
-  ps.forEach(p=>{
-    const ys=data.map(d=>d[p.key]); const eq=regression(xs,ys); equations[p.key]=eq;
-    const yA=eq.slope*xMin+eq.intercept, yB=eq.slope*xMax+eq.intercept;
-    svg+=`<line x1="${sx(xMin)}" y1="${sy(yA)}" x2="${sx(xMax)}" y2="${sy(yB)}" stroke="${p.color}" stroke-width="3" opacity=".85"/>`;
-    data.forEach(d=>{svg+=`<circle cx="${sx(d.points)}" cy="${sy(d[p.key])}" r="5" fill="${p.color}" opacity=".85"><title>${d.jobName} · ${p.key.toUpperCase()} · ${fmt(d.points,1)} points · ${money(d[p.key])}</title></circle>`});
-  });
-  data.forEach(d=>{svg+=`<text x="${sx(d.points)+7}" y="${sy(Math.max(...ps.map(p=>d[p.key]))) - 7}" font-size="11" fill="#334155">${safe(d.jobName)}</text>`});
-  svg+='</svg></div>';
-  appState.lastEquations=equations;
-  const rows=ps.map(p=>`<tr><td>${p.label}</td><td>${equationText(equations[p.key])}</td><td>${fmt(equations[p.key].r2,4)}</td></tr>`).join('');
-  return svg+`<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Percentile</th><th>Linear Equation</th><th>R²</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-function renderPredict(){
-  const data=buildAnalysisTable(); if(!appState.lastEquations) { PERCENTILES.forEach(p=>{ if(appState.selectedPercentiles.includes(p.key)) regression(data.map(d=>d.points), data.map(d=>d[p.key])); }); }
-  const pOptions=PERCENTILES.map(p=>`<option value="${p.key}">${p.label}</option>`).join('');
-  $('app').innerHTML = `${alertBlocks()}<div class="grid two"><div class="card"><h3>新岗位薪酬预测</h3><div class="formrow"><div><label>New Job Name</label><input id="newJobName" placeholder="例如 Training Specialist" /></div><div><label>Job Points</label><input id="newJobPoints" type="number" placeholder="例如 650 或 1150" /></div></div><div class="formrow"><div><label>Market Percentile</label><select id="predPercentile">${pOptions}</select></div><div><label>&nbsp;</label><button class="primary" onclick="doPredict()">计算预测薪酬</button></div></div><div id="predictResult"></div></div><div class="card"><h3>预测说明</h3><div class="help">预测公式来自所选百分位的线性回归方程。若输入薪点超出现有岗位薪点范围，系统会提示该预测属于外推，可靠性相对较低。</div><div style="margin-top:12px">${data.length?`当前薪点范围：${fmt(Math.min(...data.map(d=>d.points)),1)} — ${fmt(Math.max(...data.map(d=>d.points)),1)}`:'暂无有效薪点数据'}</div></div></div>`;
-}
-function doPredict(){
-  const data=buildAnalysisTable(); const points=Number($('newJobPoints').value); const key=$('predPercentile').value;
-  if(!points){$('predictResult').innerHTML='<div class="error">请输入有效岗位薪点。</div>'; return;}
-  const xs=data.map(d=>d.points), ys=data.map(d=>d[key]); const eq=regression(xs,ys); const salary=eq.slope*points+eq.intercept;
-  const minX=Math.min(...xs), maxX=Math.max(...xs); const extra=(points<minX||points>maxX);
-  $('predictResult').innerHTML=`<div class="success"><b>${safe($('newJobName').value||'New Job')}</b> 的预测薪酬：<b>${money(salary)}</b><br>采用方程：${equationText(eq)}，R²=${fmt(eq.r2,4)}${extra?'<br><b>提醒：</b>该薪点超出现有岗位薪点范围，属于外推预测，可靠性较低。':''}</div>`;
-}
-function renderReport(){
-  const sum=appState.summary || computeLocalSummary(); const analysis=buildAnalysisTable();
-  const summaryRows=(sum.jobPointSummary||[]).slice().sort((a,b)=>a.averagePoints-b.averagePoints).map((x,i)=>`<tr><td>${i+1}</td><td>${safe(x.jobName)}</td><td>${fmt(x.averagePoints,1)}</td><td>${x.ratingCount}</td><td>${fmt(x.standardDeviation,1)}</td></tr>`).join('');
-  const analysisRows=analysis.map((x,i)=>`<tr><td>${i+1}</td><td>${safe(x.jobName)}</td><td>${fmt(x.points,1)}</td><td>${money(x.p25)}</td><td>${money(x.p50)}</td><td>${money(x.p75)}</td></tr>`).join('');
-  $('app').innerHTML = `${alertBlocks()}<div class="card" id="reportArea"><h3>课堂练习报告</h3><p class="small">可直接打印为 PDF，或导出 JSON 数据。</p><h4>一、岗位薪点汇总</h4><div class="tablewrap"><table><thead><tr><th>Rank</th><th>Job</th><th>Average Points</th><th>Count</th><th>Std. Dev.</th></tr></thead><tbody>${summaryRows}</tbody></table></div><h4>二、薪点 × 市场薪酬分析表</h4><div class="tablewrap"><table><thead><tr><th>Rank</th><th>Job</th><th>Points</th><th>P25</th><th>P50</th><th>P75</th></tr></thead><tbody>${analysisRows}</tbody></table></div><h4>三、小组分析填写区</h4><textarea placeholder="请学生填写：哪些岗位评分分歧较大？公司采用 P25/P50/P75 的含义是什么？哪些岗位可能存在市场溢价？"></textarea></div><div class="btns"><button class="primary" onclick="window.print()">打印 / 另存 PDF</button><button class="secondary" onclick="downloadJson()">导出 JSON</button></div>`;
-}
-function downloadJson(){
-  const payload={settings:loadSettings(), summary:appState.summary || computeLocalSummary(), analysisTable:buildAnalysisTable(), exportedAt:new Date().toISOString()};
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pay_curve_report.json'; a.click(); URL.revokeObjectURL(url);
-}
-
-async function apiCall(action,payload){
-  const s=loadSettings();
-  if(!s.apiBase) return localApi(action,payload);
-  const res=await fetch(s.apiBase,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,classId:s.classId,...payload})});
-  let data; try{data=await res.json()}catch(e){throw new Error('返回结果不是 JSON')}
-  if(!res.ok || data.ok===false) throw new Error(data.error||data.message||('HTTP '+res.status));
-  return data;
+  if(!isLoggedIn()){go('login'); return;}
+  const done=completedJobCount(); if(done<JOBS.length){appState.errorMessage=`还有 ${JOBS.length-done} 个岗位未完成评价。`; return renderRating();}
+  try{ const res=await apiCall('submitRating',{submission:makeSubmission()}); markSubmitted(); appState.statusMessage=res.message||'提交成功。'; await getSummary(false); appState.view='summary'; render(); }
+  catch(e){ appState.errorMessage='提交失败：'+e.message; renderRating(); }
 }
 function localGetSubmissions(){try{return JSON.parse(localStorage.getItem(storageKey('submissions'))||'[]')}catch(e){return []}}
 function localSetSubmissions(a){localStorage.setItem(storageKey('submissions'), JSON.stringify(a))}
+async function apiCall(action,payload){
+  const s=loadSettings(); if(!modeIsCloud()) return localApi(action,payload);
+  const res=await fetch(CLOUD_FUNCTION_API_BASE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,classId:s.classId,...payload})});
+  let data; try{data=await res.json()}catch(e){throw new Error('云函数返回结果不是 JSON。请检查函数日志或 CORS 配置。')}
+  if(!res.ok || data.ok===false) throw new Error(data.error||data.message||('HTTP '+res.status)); return data;
+}
 function localApi(action,payload){
-  const s=loadSettings();
-  if(action==='health') return {ok:true,message:'Local demo mode'};
-  if(action==='submitRating'){
-    let a=localGetSubmissions(); const sub=payload.submission; const idx=a.findIndex(x=>x.studentId===sub.studentId); if(idx>=0)a[idx]=sub; else a.push(sub); localSetSubmissions(a); return {ok:true,message:'saved locally'};
-  }
-  if(action==='setConfig'){ localStorage.setItem(storageKey('config'), JSON.stringify({requiredStudents:Number(payload.requiredStudents||s.requiredStudents||0)})); return {ok:true}; }
-  if(action==='getProgress'){
-    const a=localGetSubmissions(), cfg=JSON.parse(localStorage.getItem(storageKey('config'))||'{}'); const required=Number(cfg.requiredStudents||s.requiredStudents||0);
-    const allCompleted=required>0 && a.length>=required && a.every(sub=>sub.ratings&&sub.ratings.length===JOBS.length);
-    return {ok:true, submissionsCount:a.length, requiredStudents:required, allCompleted, state:getLocalState(), submissions:a.map(x=>({studentId:x.studentId,studentName:x.studentName,groupName:x.groupName,submittedAt:x.submittedAt,completedJobs:(x.ratings||[]).length}))};
-  }
+  if(action==='submitRating'){ let a=localGetSubmissions(); const sub=payload.submission; const idx=a.findIndex(x=>x.studentId===sub.studentId); if(idx>=0)a[idx]=sub; else a.push(sub); localSetSubmissions(a); return {ok:true,message:'本地演示：已保存'}; }
   if(action==='getSummary') return computeLocalSummary();
-  if(action==='unlockMarket'){
-    const sum=computeLocalSummary();
-    if(!sum.allCompleted) throw new Error('本地模式：尚未达到应提交人数，不能解锁。可在设置中调整 Required Students 后重试。');
-    setLocalState({phase:'market_unlocked', unlockedAt:new Date().toISOString()}); return {ok:true,message:'本地模式已解锁市场薪酬'};
-  }
-  if(action==='resetClass'){ localSetSubmissions([]); setLocalState({phase:'job_evaluation'}); return {ok:true}; }
+  if(action==='getProgress'){ const a=localGetSubmissions(); return {ok:true,submissionsCount:a.length,submissions:a.map(x=>({studentId:x.studentId,studentName:x.studentName,submittedAt:x.submittedAt,completedJobs:(x.ratings||[]).length}))}; }
+  if(action==='health') return {ok:true,message:'Local demo'};
   throw new Error('Unknown action: '+action);
 }
 function computeLocalSummary(){
-  const s=loadSettings(); const a=localGetSubmissions(); let cfg={}; try{cfg=JSON.parse(localStorage.getItem(storageKey('config'))||'{}')}catch(e){}
-  const required=Number(cfg.requiredStudents||s.requiredStudents||0);
-  const arr=JOBS.map(j=>{
-    const vals=[]; a.forEach(sub=>{ const r=(sub.ratings||[]).find(x=>x.jobId===j.id); if(r && Number.isFinite(Number(r.totalPoints))) vals.push(Number(r.totalPoints)); });
-    const n=vals.length, mean=n?vals.reduce((x,y)=>x+y,0)/n:0, min=n?Math.min(...vals):0, max=n?Math.max(...vals):0;
-    const sd=n>1?Math.sqrt(vals.reduce((acc,v)=>acc+(v-mean)**2,0)/(n-1)):0;
-    return {jobId:j.id, jobName:j.name, ratingCount:n, averagePoints:mean, minPoints:min, maxPoints:max, standardDeviation:sd};
-  });
-  const allCompleted=required>0 && a.length>=required && arr.every(x=>x.ratingCount>=required);
-  return {ok:true, classId:s.classId, submissionsCount:a.length, requiredStudents:required, allCompleted, state:getLocalState(), jobPointSummary:arr};
+  const s=loadSettings(), a=localGetSubmissions(); const arr=JOBS.map(j=>{ const vals=[]; a.forEach(sub=>{ const r=(sub.ratings||[]).find(x=>x.jobId===j.id); if(r&&Number.isFinite(Number(r.totalPoints))) vals.push(Number(r.totalPoints)); }); const n=vals.length, mean=n?vals.reduce((x,y)=>x+y,0)/n:0, min=n?Math.min(...vals):0, max=n?Math.max(...vals):0, sd=n>1?Math.sqrt(vals.reduce((acc,v)=>acc+(v-mean)**2,0)/(n-1)):0; return {jobId:j.id,jobName:j.name,ratingCount:n,averagePoints:mean,minPoints:min,maxPoints:max,standardDeviation:sd}; }); return {ok:true,classId:s.classId,submissionsCount:a.length,jobPointSummary:arr,state:{phase:'auto_sorted'}};
 }
-
+async function getSummary(show=true){
+  try{ const sum=await apiCall('getSummary',{}); appState.summary=sum; if(show){appState.statusMessage='已刷新岗位薪点结果。'; render();} return sum; }
+  catch(e){ appState.errorMessage='刷新失败：'+e.message; if(show)render(); return null; }
+}
+function getSummaryData(){ return appState.summary || computeLocalSummary(); }
+function sortedSummaryRows(){ const sum=getSummaryData(); return (sum.jobPointSummary||[]).slice().filter(x=>x.ratingCount>0).sort((a,b)=>(a.averagePoints-b.averagePoints)||JOBS.findIndex(j=>j.id===a.jobId)-JOBS.findIndex(j=>j.id===b.jobId)); }
+function renderSummary(){
+  const sum=getSummaryData(); const arr=sortedSummaryRows();
+  const rows=arr.map((x,i)=>`<tr><td>${i+1}</td><td class="left">${safe(x.jobName)}</td><td>${x.ratingCount}</td><td>${fmt(x.averagePoints,1)}</td><td>${fmt(x.minPoints,1)}</td><td>${fmt(x.maxPoints,1)}</td><td>${fmt(x.standardDeviation,1)}</td></tr>`).join('');
+  $('app').innerHTML=`${alertBlocks()}<div class="card"><h3>岗位薪点结果</h3><div class="notice">当前结果基于已提交学生的数据计算。随着更多学生提交，岗位平均薪点、排序和薪酬曲线可能发生变化。</div><div class="btns"><button class="primary" onclick="getSummary()">刷新当前全班结果</button><button class="secondary" onclick="go('market')">查看动态市场薪酬表</button></div><div class="kpi" style="margin-top:12px"><div class="item"><div class="num">${sum.submissionsCount||0}</div><div class="small">已提交人数</div></div><div class="item"><div class="num">${arr.length}</div><div class="small">参与排序岗位数</div></div><div class="item"><div class="num">${arr[0]?fmt(arr[0].averagePoints,0):'-'}</div><div class="small">最低平均薪点</div></div><div class="item"><div class="num">${arr.length?fmt(arr[arr.length-1].averagePoints,0):'-'}</div><div class="small">最高平均薪点</div></div></div><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Rank</th><th class="left">Job</th><th>Rating Count</th><th>Average Points</th><th>Min</th><th>Max</th><th>Std. Dev.</th></tr></thead><tbody>${rows||'<tr><td colspan="7">暂无提交数据</td></tr>'}</tbody></table></div></div>`;
+}
+function pRow(value){return MARKET_ROWS.find(r=>Math.abs(r.percentile-value)<0.0001)}
+function buildAnalysisTable(){ const rows=sortedSummaryRows(); const p25=pRow(.25),p50=pRow(.50),p75=pRow(.75); return rows.map(x=>({jobId:x.jobId,jobName:x.jobName,points:x.averagePoints,ratingCount:x.ratingCount,p25:p25.values[x.jobId],p50:p50.values[x.jobId],p75:p75.values[x.jobId]})); }
+function renderMarket(){
+  const arr=sortedSummaryRows(); if(!arr.length){ $('app').innerHTML=`${alertBlocks()}<div class="lockedbox"><h3>暂无岗位薪点数据</h3><p>请先完成并提交岗位评价。</p></div>`; return; }
+  const headers=arr.map(x=>`<th>${safe(x.jobName)}<br><span class="small">${fmt(x.averagePoints,1)} pts</span></th>`).join('');
+  const pointRow=`<tr><th>—</th><th class="left">Average Job Points</th>${arr.map(x=>`<td><b>${fmt(x.averagePoints,1)}</b></td>`).join('')}</tr>`;
+  const marketRows=MARKET_ROWS.map(r=>`<tr><td>${r.rank}</td><td class="left">${fmt(r.percentile*100,0)}%</td>${arr.map(x=>`<td>${money(r.values[x.jobId])}</td>`).join('')}</tr>`).join('');
+  $('app').innerHTML=`${alertBlocks()}<div class="card"><h3>按平均岗位薪点动态排序的市场薪酬表</h3><div class="notice">岗位列从左到右按当前已提交学生计算出的平均薪点从低到高排列。表中的市场薪酬数值来自原始市场薪酬数据源，只有岗位列顺序随课堂评价结果动态变化。</div><div class="btns"><button class="primary" onclick="getSummary()">刷新排序</button><button class="secondary" onclick="go('curve')">生成曲线与方程</button></div><div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Rank</th><th class="left">Percentile</th>${headers}</tr></thead><tbody>${pointRow+marketRows}</tbody></table></div></div>`;
+}
+function renderCurve(){
+  const data=buildAnalysisTable(); if(data.length<3){ $('app').innerHTML=`${alertBlocks()}<div class="lockedbox"><h3>数据不足</h3><p>至少需要 3 个岗位薪点数据才能生成线性回归曲线。</p></div>`; return; }
+  const checks=PERCENTILES.map(p=>`<label style="display:inline-flex;align-items:center;gap:6px;margin-right:12px"><input type="checkbox" value="${p.key}" ${appState.selectedPercentiles.includes(p.key)?'checked':''} onchange="togglePercentile(this)">${p.label}</label>`).join('');
+  $('app').innerHTML=`${alertBlocks()}<div class="card"><h3>市场薪酬曲线与线性方程</h3><div class="notice">请选择一个或多个市场百分位。系统将以平均岗位薪点为横轴、市场薪酬为纵轴，生成散点图、线性回归直线、方程和 R²。</div><div>${checks}</div><div id="curveBox" style="margin-top:12px">${drawCurve(data,appState.selectedPercentiles)}</div></div>`;
+}
+function togglePercentile(el){ const key=el.value; if(el.checked){ if(!appState.selectedPercentiles.includes(key))appState.selectedPercentiles.push(key); } else { appState.selectedPercentiles=appState.selectedPercentiles.filter(x=>x!==key); } if(!appState.selectedPercentiles.length) appState.selectedPercentiles=['p50']; renderCurve(); }
+function regression(xs,ys){ const n=xs.length, mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n; let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2;} const slope=den?num/den:0, intercept=my-slope*mx; let ssTot=0, ssRes=0; for(let i=0;i<n;i++){ const pred=slope*xs[i]+intercept; ssTot+=(ys[i]-my)**2; ssRes+=(ys[i]-pred)**2; } const r2=ssTot?1-ssRes/ssTot:1; return {slope,intercept,r2}; }
+function equationText(eq){ return `y = ${fmt(eq.slope,4)}x ${eq.intercept>=0?'+':'-'} ${fmt(Math.abs(eq.intercept),2)}`; }
+function drawCurve(data,selected){
+  const ps=PERCENTILES.filter(p=>selected.includes(p.key)); const xs=data.map(d=>d.points); const yVals=[]; ps.forEach(p=>data.forEach(d=>yVals.push(d[p.key])));
+  const xMin=Math.min(...xs),xMax=Math.max(...xs),yMin=Math.min(...yVals),yMax=Math.max(...yVals); const W=1080,H=560,M={l:70,r:30,t:30,b:70};
+  const sx=x=>M.l+(x-xMin)/(xMax-xMin||1)*(W-M.l-M.r); const sy=y=>H-M.b-(y-yMin)/(yMax-yMin||1)*(H-M.t-M.b);
+  let svg=`<div class="legend">${ps.map(p=>`<span><i class="dot" style="background:${p.color}"></i>${p.label}</span>`).join('')}</div><div class="svgbox"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  svg+=`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`;
+  for(let i=0;i<=5;i++){const y=yMin+(yMax-yMin)*i/5, yy=sy(y); svg+=`<line x1="${M.l}" y1="${yy}" x2="${W-M.r}" y2="${yy}" stroke="#e5e7eb"/><text x="${M.l-10}" y="${yy+4}" text-anchor="end" font-size="12" fill="#64748b">${money(y)}</text>`;}
+  for(let i=0;i<=5;i++){const x=xMin+(xMax-xMin)*i/5, xx=sx(x); svg+=`<line x1="${xx}" y1="${M.t}" x2="${xx}" y2="${H-M.b}" stroke="#f1f5f9"/><text x="${xx}" y="${H-M.b+22}" text-anchor="middle" font-size="12" fill="#64748b">${fmt(x,0)}</text>`;}
+  svg+=`<line x1="${M.l}" y1="${H-M.b}" x2="${W-M.r}" y2="${H-M.b}" stroke="#334155"/><line x1="${M.l}" y1="${M.t}" x2="${M.l}" y2="${H-M.b}" stroke="#334155"/>`;
+  svg+=`<text x="${W/2}" y="${H-20}" text-anchor="middle" font-size="14" fill="#334155">Average Job Points / 平均岗位薪点</text><text transform="translate(18 ${H/2}) rotate(-90)" text-anchor="middle" font-size="14" fill="#334155">Market Salary / 市场薪酬</text>`;
+  const equations={}; ps.forEach(p=>{ const ys=data.map(d=>d[p.key]), eq=regression(xs,ys); equations[p.key]=eq; const yA=eq.slope*xMin+eq.intercept, yB=eq.slope*xMax+eq.intercept; svg+=`<line x1="${sx(xMin)}" y1="${sy(yA)}" x2="${sx(xMax)}" y2="${sy(yB)}" stroke="${p.color}" stroke-width="3" opacity=".85"/>`; data.forEach(d=>{svg+=`<circle cx="${sx(d.points)}" cy="${sy(d[p.key])}" r="5" fill="${p.color}" opacity=".85"><title>${d.jobName} · ${p.key.toUpperCase()} · ${fmt(d.points,1)} points · ${money(d[p.key])}</title></circle>`;}); });
+  data.forEach(d=>{svg+=`<text x="${sx(d.points)+7}" y="${sy(Math.max(...ps.map(p=>d[p.key])))-7}" font-size="11" fill="#334155">${safe(d.jobName)}</text>`;}); svg+='</svg></div>'; appState.lastEquations=equations;
+  const rows=ps.map(p=>`<tr><td>${p.label}</td><td>${equationText(equations[p.key])}</td><td>${fmt(equations[p.key].r2,4)}</td></tr>`).join('');
+  return svg+`<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Percentile</th><th>Linear Equation</th><th>R²</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function renderPredict(){ const data=buildAnalysisTable(); const pOptions=PERCENTILES.map(p=>`<option value="${p.key}">${p.label}</option>`).join(''); $('app').innerHTML=`${alertBlocks()}<div class="grid two"><div class="card"><h3>新岗位薪酬预测</h3><div class="formrow"><div><label>New Job Name</label><input id="newJobName" placeholder="例如 Training Specialist" /></div><div><label>Job Points</label><input id="newJobPoints" type="number" placeholder="例如 650 或 1150" /></div></div><div class="formrow"><div><label>Market Percentile</label><select id="predPercentile">${pOptions}</select></div><div><label>&nbsp;</label><button class="primary" onclick="doPredict()">计算预测薪酬</button></div></div><div id="predictResult"></div></div><div class="card"><h3>预测说明</h3><div class="help">预测公式来自所选百分位的线性回归方程。若输入薪点超出现有岗位薪点范围，系统会提示该预测属于外推，可靠性相对较低。</div><div style="margin-top:12px">${data.length?`当前薪点范围：${fmt(Math.min(...data.map(d=>d.points)),1)} — ${fmt(Math.max(...data.map(d=>d.points)),1)}`:'暂无有效薪点数据'}</div></div></div>`; }
+function doPredict(){ const data=buildAnalysisTable(); const points=Number($('newJobPoints').value), key=$('predPercentile').value; if(!points){$('predictResult').innerHTML='<div class="error">请输入有效岗位薪点。</div>'; return;} const xs=data.map(d=>d.points),ys=data.map(d=>d[key]),eq=regression(xs,ys),salary=eq.slope*points+eq.intercept; const minX=Math.min(...xs),maxX=Math.max(...xs),extra=(points<minX||points>maxX); $('predictResult').innerHTML=`<div class="success"><b>${safe($('newJobName').value||'New Job')}</b> 的预测薪酬：<b>${money(salary)}</b><br>采用方程：${equationText(eq)}，R²=${fmt(eq.r2,4)}${extra?'<br><b>提醒：</b>该薪点超出现有岗位薪点范围，属于外推预测，可靠性较低。':''}</div>`; }
+function renderReport(){ const sum=getSummaryData(), analysis=buildAnalysisTable(); const summaryRows=sortedSummaryRows().map((x,i)=>`<tr><td>${i+1}</td><td>${safe(x.jobName)}</td><td>${fmt(x.averagePoints,1)}</td><td>${x.ratingCount}</td><td>${fmt(x.standardDeviation,1)}</td></tr>`).join(''); const analysisRows=analysis.map((x,i)=>`<tr><td>${i+1}</td><td>${safe(x.jobName)}</td><td>${fmt(x.points,1)}</td><td>${money(x.p25)}</td><td>${money(x.p50)}</td><td>${money(x.p75)}</td></tr>`).join(''); $('app').innerHTML=`${alertBlocks()}<div class="card" id="reportArea"><h3>课堂练习报告</h3><p class="small">可直接打印为 PDF，或导出 JSON 数据。</p><h4>一、岗位薪点汇总</h4><div class="tablewrap"><table><thead><tr><th>Rank</th><th>Job</th><th>Average Points</th><th>Count</th><th>Std. Dev.</th></tr></thead><tbody>${summaryRows}</tbody></table></div><h4>二、动态薪点 × 市场薪酬分析表</h4><div class="tablewrap"><table><thead><tr><th>Rank</th><th>Job</th><th>Points</th><th>P25</th><th>P50</th><th>P75</th></tr></thead><tbody>${analysisRows}</tbody></table></div><h4>三、学生分析填写区</h4><textarea placeholder="请填写：哪些岗位评分分歧较大？P25/P50/P75 分别体现什么薪酬策略？哪些岗位可能存在市场溢价？"></textarea></div><div class="btns"><button class="primary" onclick="window.print()">打印 / 另存 PDF</button><button class="secondary" onclick="downloadJson()">导出 JSON</button></div>`; }
+function downloadJson(){ const payload={settings:loadSettings(), summary:getSummaryData(), analysisTable:buildAnalysisTable(), exportedAt:new Date().toISOString()}; const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pay_curve_report_v06.json'; a.click(); URL.revokeObjectURL(url); }
 render();
 </script>
 </body>
